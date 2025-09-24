@@ -2,8 +2,9 @@
 
 static lv_style_t style_card;
 static lv_style_t style_label;
+static lv_obj_t* g_status_label = NULL; // label updated from UDP bridge
 
-static void make_card(lv_obj_t* parent, const char* title) {
+static lv_obj_t* make_card(lv_obj_t* parent, const char* title) {
   lv_obj_t* card = lv_obj_create(parent);
   lv_obj_add_style(card, &style_card, 0);
   lv_obj_set_size(card, 300, 220);
@@ -12,6 +13,7 @@ static void make_card(lv_obj_t* parent, const char* title) {
   lv_obj_add_style(lbl, &style_label, 0);
   lv_label_set_text(lbl, title);
   lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 12, 8);
+  return card;
 }
 
 void ui_create(void) {
@@ -43,7 +45,14 @@ void ui_create(void) {
   lv_obj_t* c1 = lv_obj_create(grid);
   lv_obj_remove_style_all(c1);
   lv_obj_set_grid_cell(c1, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_START, 0, 1);
-  make_card(c1, "Voice Activation");
+  {
+    lv_obj_t* card = make_card(c1, "Voice Activation");
+    // Status label inside the first card
+    g_status_label = lv_label_create(card);
+    lv_obj_add_style(g_status_label, &style_label, 0);
+    lv_label_set_text(g_status_label, "status: idle");
+    lv_obj_align(g_status_label, LV_ALIGN_LEFT_MID, 12, 12);
+  }
 
   lv_obj_t* c2 = lv_obj_create(grid);
   lv_obj_remove_style_all(c2);
@@ -59,4 +68,10 @@ void ui_create(void) {
   lv_obj_remove_style_all(c4);
   lv_obj_set_grid_cell(c4, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_START, 1, 1);
   make_card(c4, "Notifications");
+}
+
+// Exposed to main to allow async updates from UDP thread
+void ui_set_status(const char* text) {
+  if(g_status_label == NULL || text == NULL) return;
+  lv_label_set_text(g_status_label, text);
 }

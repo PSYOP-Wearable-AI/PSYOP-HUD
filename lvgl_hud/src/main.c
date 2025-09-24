@@ -2,13 +2,65 @@
 #include <stdbool.h>
 #include <SDL.h>
 #include "lvgl.h"
+#include <pthread.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <string.h>
 
 // Forward
 void ui_create(void);
+void ui_set_status(const char* text);
 
 static void sdl_tick(void* data) {
   (void)data;
   lv_tick_inc(5);
+}
+
+static void ui_set_status_async(void* msg) {
+  const char* text = (const char*)msg;
+  if(text) {
+    ui_set_status(text);
+    free((void*)text);
+  }
+}
+
+static void* udp_listener_thread(void* arg) {
+  (void)arg;
+  int sock = socket(AF_INET, SOCK_DGRAM, 0);
+  if(sock < 0) {
+    perror("udp socket");
+    return NULL;
+  }
+
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); // 127.0.0.1
+  addr.sin_port = htons(9876);
+
+  if(bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    perror("udp bind");
+    close(sock);
+    return NULL;
+  }
+
+  char buffer[1024];
+  for(;;) {
+    ssize_t n = recv(sock, buffer, sizeof(buffer) - 1, 0);
+    if(n > 0) {
+      buffer[n] = '\0';
+      // Copy text for async call; LVGL will update on main thread
+      char* text = strdup(buffer);
+      if(text) lv_async_call(ui_set_status_async, text);
+    } else if(n < 0) {
+      // Sleep briefly to avoid busy loop on error
+      usleep(1000 * 10);
+    }
+  }
+  close(sock);
+  return NULL;
 }
 
 int main(int argc, char** argv) {
@@ -77,6 +129,11 @@ int main(int argc, char** argv) {
 
   // Create UI
   ui_create();
+
+  // Start UDP listener thread (updates status label)
+  pthread_t tid;
+  pthread_create(&tid, NULL, udp_listener_thread, NULL);
+  pthread_detach(tid);
 
   // Timer for LVGL tick
   SDL_AddTimer(5, (SDL_TimerCallback)sdl_tick, NULL);
